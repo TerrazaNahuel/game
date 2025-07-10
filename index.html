@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rebote Rítmico</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #1a1a2e;
+            --primary-color: #00f5d4;
+            --secondary-color: #e11d48;
+            --text-color: #f1f1f1;
+            --perfect-color: #ffca3a;
+            --good-color: #8ac926;
+            --glow-color: rgba(0, 245, 212, 0.7);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: var(--bg-color);
+            font-family: 'Orbitron', sans-serif;
+            color: var(--text-color);
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            height: 100%;
+            max-height: 700px;
+            box-shadow: 0 0 30px var(--glow-color);
+            border-radius: 15px;
+            overflow: hidden;
+            background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            background-color: transparent;
+        }
+
+        #ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            pointer-events: none;
+            z-index: 2;
+        }
+        
+        #score {
+            position: absolute;
+            top: 20px;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            text-shadow: 0 0 10px var(--glow-color);
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+        
+        #timing-feedback {
+            position: absolute;
+            font-size: 1.5rem;
+            font-weight: bold;
+            opacity: 0;
+            transition: all 0.5s;
+        }
+
+        #timing-feedback.show {
+            opacity: 1;
+            transform: translateY(-50px);
+        }
+
+        #game-over-screen, #start-screen {
+            background-color: rgba(26, 26, 46, 0.85);
+            backdrop-filter: blur(5px);
+            padding: 30px;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            pointer-events: all;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        
+        h1 {
+            margin: 0;
+            font-size: 2.5rem;
+            color: var(--primary-color);
+            text-shadow: 0 0 15px var(--glow-color);
+            animation: pulse-title 2s infinite;
+        }
+
+        p { margin: 0; font-size: 1rem; }
+        #final-score { font-size: 1.5rem; font-weight: 700; }
+
+        .button {
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            font-family: 'Orbitron', sans-serif;
+            background-color: var(--primary-color);
+            color: var(--bg-color);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 0 10px var(--glow-color);
+        }
+
+        .button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px var(--glow-color);
+        }
+        
+        .hidden { display: none !important; }
+
+        #beat-indicator {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80px;
+            height: 8px;
+            background-color: var(--primary-color);
+            border-radius: 4px;
+            box-shadow: 0 0 15px var(--glow-color);
+            transition: transform 0.05s ease-out;
+        }
+
+        #beat-indicator.pulse {
+            transform: translateX(-50%) scale(1.2);
+        }
+
+        @keyframes pulse-title {
+            0% { transform: scale(1); text-shadow: 0 0 15px var(--glow-color); }
+            50% { transform: scale(1.05); text-shadow: 0 0 25px var(--glow-color); }
+            100% { transform: scale(1); text-shadow: 0 0 15px var(--glow-color); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="ui-overlay">
+            <div id="score">0</div>
+            <div id="timing-feedback"></div>
+            <div id="start-screen">
+                <h1>Rebote Rítmico</h1>
+                <p>Haz clic al ritmo de la música.</p>
+                <p>¡Consigue "Perfectos" para más puntos!</p>
+                <button id="start-button" class="button">Empezar</button>
+            </div>
+            <div id="game-over-screen" class="hidden">
+                <h2>Fin del Juego</h2>
+                <p>Puntuación Final: <span id="final-score">0</span></p>
+                <button id="retry-button" class="button">Reintentar</button>
+            </div>
+        </div>
+        <div id="beat-indicator"></div>
+    </div>
+
+    <script>
+        // --- CONFIGURACIÓN INICIAL ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gameContainer = document.getElementById('game-container');
+
+        const scoreEl = document.getElementById('score');
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const startButton = document.getElementById('start-button');
+        const retryButton = document.getElementById('retry-button');
+        const finalScoreEl = document.getElementById('final-score');
+        const timingFeedbackEl = document.getElementById('timing-feedback');
+        const beatIndicator = document.getElementById('beat-indicator');
+
+        let canvasWidth, canvasHeight;
+        let player, obstacles, particles;
+        let score, bpm, obstacleSpeed;
+        let gameState = 'start'; // 'start', 'playing', 'gameOver'
+        let synth, perfectSynth;
+
+        // --- CLASES Y OBJETOS DEL JUEGO ---
+        class Player {
+            constructor() {
+                this.width = 25; this.height = 25;
+                this.x = canvasWidth / 2 - this.width / 2;
+                this.y = canvasHeight - this.height - 50;
+                this.vx = 3; this.vy = 0;
+                this.gravity = 0.5; this.jumpForce = -10;
+                this.color = 'var(--primary-color)';
+            }
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.shadowColor = 'var(--glow-color)';
+                ctx.shadowBlur = 15;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                ctx.shadowBlur = 0;
+            }
+            update() {
+                this.x += this.vx;
+                if (this.x <= 0 || this.x + this.width >= canvasWidth) {
+                    this.vx *= -1;
+                    if (this.x <= 0) this.x = 0;
+                    if (this.x + this.width >= canvasWidth) this.x = canvasWidth - this.width;
+                    createParticles(this.x + (this.vx > 0 ? 0 : this.width), this.y + this.height / 2, 5);
+                }
+                this.vy += this.gravity;
+                this.y += this.vy;
+                if (this.y + this.height > canvasHeight) {
+                    this.y = canvasHeight - this.height;
+                    this.vy = this.jumpForce;
+                    createParticles(this.x + this.width / 2, this.y + this.height, 5);
+                }
+            }
+            switchDirection() { this.vx *= -1; }
+        }
+
+        class Obstacle {
+             constructor() {
+                this.width = Math.random() * (canvasWidth / 2 - 40) + 40;
+                this.height = 20;
+                this.x = Math.random() > 0.5 ? 0 : canvasWidth - this.width;
+                this.y = -this.height;
+                this.color = 'var(--secondary-color)';
+            }
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.shadowColor = 'var(--secondary-color)';
+                ctx.shadowBlur = 10;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                ctx.shadowBlur = 0;
+            }
+            update() { this.y += obstacleSpeed; }
+        }
+        
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x; this.y = y;
+                this.size = Math.random() * 3 + 1;
+                this.speedX = Math.random() * 3 - 1.5;
+                this.speedY = Math.random() * 3 - 1.5;
+                this.color = color;
+                this.life = 1;
+            }
+            update() {
+                this.x += this.speedX; this.y += this.speedY;
+                this.life -= 0.04;
+            }
+            draw() {
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        // --- FUNCIONES DEL JUEGO ---
+        function init() {
+            const containerRect = gameContainer.getBoundingClientRect();
+            canvas.width = containerRect.width; canvas.height = containerRect.height;
+            canvasWidth = canvas.width; canvasHeight = canvas.height;
+            player = new Player();
+            obstacles = []; particles = [];
+            score = 0; scoreEl.textContent = score;
+            bpm = 120; obstacleSpeed = 2.5;
+            
+            if (!synth) {
+                synth = new Tone.Synth({ oscillator: { type: 'fmsquare' }, envelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.1 } }).toDestination();
+                perfectSynth = new Tone.Synth({ oscillator: { type: 'triangle' }, envelope: { attack: 0.01, decay: 0.2, sustain: 0.1, release: 0.2 } }).toDestination();
+            }
+        }
+        
+        function gameLoop() {
+            if (gameState !== 'playing') return;
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            
+            particles.forEach((p, index) => {
+                p.update(); p.draw();
+                if (p.life <= 0) particles.splice(index, 1);
+            });
+
+            player.update(); player.draw();
+
+            obstacles.forEach((obstacle, index) => {
+                obstacle.update(); obstacle.draw();
+                if (obstacle.y > canvasHeight) {
+                    obstacles.splice(index, 1);
+                    // Puntuación ahora se basa en el ritmo, no en esquivar.
+                }
+                if (player.x < obstacle.x + obstacle.width && player.x + player.width > obstacle.x && player.y < obstacle.y + obstacle.height && player.y + player.height > obstacle.y) {
+                    endGame();
+                }
+            });
+            requestAnimationFrame(gameLoop);
+        }
+
+        function startGame() {
+            if (Tone.context.state !== 'running') { Tone.start(); }
+            init();
+            gameState = 'playing';
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+            scoreEl.style.opacity = '1';
+            
+            Tone.Transport.bpm.value = bpm;
+            Tone.Transport.scheduleRepeat(time => {
+                Tone.Draw.schedule(() => {
+                    if(gameState === 'playing') {
+                        obstacles.push(new Obstacle());
+                        beatIndicator.classList.add('pulse');
+                        setTimeout(() => beatIndicator.classList.remove('pulse'), 100);
+                    }
+                }, time);
+                synth.triggerAttackRelease('C2', '8n', time);
+            }, '4n');
+
+            Tone.Transport.start();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function endGame() {
+            if (gameState !== 'playing') return;
+            gameState = 'gameOver';
+            Tone.Transport.stop(); Tone.Transport.cancel();
+            createParticles(player.x + player.width / 2, player.y + player.height / 2, 30, 'var(--secondary-color)');
+            finalScoreEl.textContent = score;
+            gameOverScreen.classList.remove('hidden');
+            scoreEl.style.opacity = '0';
+        }
+
+        function createParticles(x, y, count, color = 'var(--primary-color)') {
+            for (let i = 0; i < count; i++) { particles.push(new Particle(x, y, color)); }
+        }
+        
+        function showTimingFeedback(text, color) {
+            timingFeedbackEl.textContent = text;
+            timingFeedbackEl.style.color = color;
+            timingFeedbackEl.style.top = `${player.y - 20}px`;
+            timingFeedbackEl.style.left = `${player.x + player.width/2 - timingFeedbackEl.offsetWidth/2}px`;
+            timingFeedbackEl.classList.add('show');
+            setTimeout(() => {
+                timingFeedbackEl.classList.remove('show');
+            }, 500);
+        }
+
+        function handleInput() {
+            if (gameState !== 'playing') return;
+            player.switchDirection();
+            
+            // Lógica de puntuación rítmica
+            const progress = Tone.Transport.progress;
+            const beatProgress = (progress * 4) % 1; // Progreso dentro del beat actual (0-1)
+            
+            const perfectWindow = 0.15; // 15% de margen para "Perfecto"
+            const goodWindow = 0.30; // 30% de margen para "Genial"
+
+            if (beatProgress < perfectWindow || beatProgress > 1 - perfectWindow) {
+                score += 100;
+                showTimingFeedback('¡Perfecto!', 'var(--perfect-color)');
+                perfectSynth.triggerAttackRelease('C5', '16n');
+            } else if (beatProgress < goodWindow || beatProgress > 1 - goodWindow) {
+                score += 50;
+                showTimingFeedback('¡Genial!', 'var(--good-color)');
+                synth.triggerAttackRelease('G4', '16n');
+            } else {
+                score += 10; // Puntos por un toque normal
+                synth.triggerAttackRelease('C4', '16n');
+            }
+            scoreEl.textContent = score;
+        }
+
+        // --- MANEJADORES DE EVENTOS ---
+        startButton.addEventListener('click', startGame);
+        retryButton.addEventListener('click', startGame);
+        window.addEventListener('click', handleInput);
+        window.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Previene el comportamiento de click doble en móvil
+            handleInput();
+        });
+        window.addEventListener('resize', init);
+        init();
+    </script>
+</body>
+</html>
